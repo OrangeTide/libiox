@@ -14,6 +14,8 @@ easily cost you more than it saves.
 
 - [udpzc.c](udpzc.c) -- the test program. Linux only, no dependencies,
   including no liburing.
+- [poll-limits.md](poll-limits.md) -- what libiox would have to change to
+  support each of these, and why only one of the three was worth doing.
 
 ```sh
 cc -O2 -Wall -Wextra -o udpzc udpzc.c
