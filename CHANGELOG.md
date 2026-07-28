@@ -3,6 +3,28 @@
 Versions are SemVer. The major version is the compatibility promise for the
 API. While the major version is 0, a minor bump may break the API.
 
+## 0.1.1
+
+A bug fix in `tools/vendor.sh`. The library itself is unchanged, so a copy
+already on 0.1.0 does not need to be re-vendored for this.
+
+### Fixed
+
+- **`tools/vendor.sh --force` no longer deletes a `module.mk` it will not
+  replace.** With `--no-module-mk` the `module.mk` in the destination is the
+  host project's own build wiring, which the script did not put there. The
+  `--force` cleanup removed it anyway and then wrote nothing back, silently
+  destroying it.
+
+  This matters because most projects vendoring libiox do keep their own
+  wiring: target names and platform guards differ between them, so
+  `--no-module-mk` is the normal way to upgrade, not an unusual one. The bug
+  cost one project its `module.mk` on the first real re-vendor.
+
+  The cleanup now clears `module.mk` only when the run is going to write one.
+  CI covers both directions: a host-owned file survives `--force`, and one
+  the run does own is still replaced rather than left stale.
+
 ## 0.1.0
 
 First release of the consolidated library. libiox had been vendored and

@@ -274,9 +274,35 @@ jobs:
           set -eu
           tools/vendor.sh --from . --dest "$DEST" --force --no-module-mk
           test ! -d "$DEST/tests"
-          test ! -f "$DEST/module.mk"
           test -f "$DEST/iox_loop.c"
           echo "--force cleaned up the previous layout"
+
+      # Regression test for a real data-loss bug. Most projects vendoring
+      # libiox keep their own build wiring, because their target names and
+      # platform guards differ; they pass --no-module-mk and the module.mk in
+      # the destination is theirs, not ours. --force used to delete it and
+      # then write nothing back, silently destroying it. It cost one project
+      # its module.mk before anyone noticed.
+      - name: --force must not eat a host-owned module.mk
+        run: |
+          set -eu
+          HOSTED=$(mktemp -d)/libiox
+          tools/vendor.sh --from . --dest "$HOSTED" --no-module-mk
+          printf 'HOST OWNED -- vendor.sh must never delete this\n' \
+              > "$HOSTED/module.mk"
+
+          tools/vendor.sh --from . --dest "$HOSTED" --force --no-module-mk
+          grep -q 'HOST OWNED' "$HOSTED/module.mk" || {
+              echo "--force destroyed the host project's module.mk"; exit 1; }
+          echo "host-owned module.mk survived --force"
+
+          # The other direction still has to work: without --no-module-mk the
+          # file is ours to replace, and a stale one must not linger.
+          tools/vendor.sh --from . --dest "$HOSTED" --force
+          grep -q 'HOST OWNED' "$HOSTED/module.mk" && {
+              echo "module.mk was not replaced when it should have been"; exit 1; }
+          grep -q 'libiox' "$HOSTED/module.mk"
+          echo "module.mk replaced when this run owns it"
 
   # Fuzzing runs weekly rather than per-push. A 15-minute run reaches states
   # a 60-second one does not, and blocking every push on it would buy little.

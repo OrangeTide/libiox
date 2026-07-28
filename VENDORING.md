@@ -34,7 +34,7 @@ Piping anything from the network into a shell means trusting the server and
 the connection; reading it first is the better habit:
 
 ```sh
-TAG=v0.1.0
+TAG=v0.1.1
 curl -fsSLO "https://raw.githubusercontent.com/OrangeTide/libiox/$TAG/tools/vendor.sh"
 less vendor.sh && sh vendor.sh --version "$TAG"
 ```
@@ -69,7 +69,10 @@ habit.
 
 `--no-module-mk` skips the library's `module.mk`, which is otherwise copied
 because it declares the library alone and is inert to a project that does not
-use modular-make.
+use modular-make. Use it when your project keeps its own wiring for libiox,
+which is the common case once target names or platform guards differ from the
+ones upstream uses. `--force` will not touch a `module.mk` it is not going to
+replace, so the file is yours to keep.
 
 ## Fitting it to your build
 
@@ -101,8 +104,8 @@ that can say what it is:
 ```c
 #include "iox_version.h"
 
-#if IOX_VERSION < 100          /* 0.1.0 */
-#  error "libiox 0.1.0 or newer is required"
+#if IOX_VERSION < 101          /* 0.1.1 */
+#  error "libiox 0.1.1 or newer is required"
 #endif
 ```
 

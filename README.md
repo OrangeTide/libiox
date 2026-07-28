@@ -38,9 +38,9 @@ iox_loop_free(loop);
 libiox is copied into your tree rather than installed:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/OrangeTide/libiox/v0.1.0/tools/vendor.sh
+curl -fsSLO https://raw.githubusercontent.com/OrangeTide/libiox/v0.1.1/tools/vendor.sh
 less vendor.sh
-sh vendor.sh --version v0.1.0 --dest third_party/libiox
+sh vendor.sh --version v0.1.1 --dest third_party/libiox
 ```
 
 Then one include path and five sources. See [VENDORING.md](VENDORING.md).
