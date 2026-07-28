@@ -753,6 +753,91 @@ test_closed_fd_dropped(void)
     PASS();
 }
 
+/* ---- POLLERR is reported as IOX_EXCEPT ---- */
+
+static int except_cb_called;
+static unsigned except_cb_events;
+
+static void
+except_cb(struct iox_loop *loop, int fd, unsigned events, void *arg)
+{
+    (void)loop;
+    (void)fd;
+    (void)arg;
+    except_cb_called++;
+    except_cb_events = events;
+}
+
+static void
+test_fd_except(void)
+{
+    struct iox_loop *loop;
+    int pfd[2];
+
+    TEST("POLLERR is delivered as IOX_EXCEPT, with IOX_READ still set");
+    ASSERT(pipe(pfd) == 0, "pipe failed");
+
+    loop = iox_loop_new();
+    ASSERT(loop != NULL, "loop new failed");
+
+    /* events 0: POLLERR cannot be requested, so this is what a watcher
+     * that only cares about the error condition looks like. */
+    ASSERT(iox_fd_add(loop, pfd[1], 0, except_cb, NULL) == IOX_OK,
+        "fd_add failed");
+
+    except_cb_called = 0;
+    except_cb_events = 0;
+    close(pfd[0]);          /* write end now has a pending error */
+
+    ASSERT(iox_timer_add(loop, 50, timer_fire_cb, NULL) >= 0,
+        "timer_add failed");
+    (void)iox_loop_poll(loop);
+
+    ASSERT(except_cb_called == 1, "callback not called once");
+    ASSERT(except_cb_events & IOX_EXCEPT, "IOX_EXCEPT not set");
+    ASSERT(except_cb_events & IOX_READ,
+        "IOX_READ dropped -- pre-IOX_EXCEPT callers would break");
+
+    iox_loop_free(loop);
+    close(pfd[1]);
+    PASS();
+}
+
+/* A descriptor closed behind the loop is a caller bug, not an error
+ * condition to go read about, so POLLNVAL must not masquerade as one. */
+static void
+test_closed_fd_not_except(void)
+{
+    struct iox_loop *loop;
+    int pfd[2];
+
+    TEST("POLLNVAL is not reported as IOX_EXCEPT");
+    ASSERT(pipe(pfd) == 0, "pipe failed");
+
+    loop = iox_loop_new();
+    ASSERT(loop != NULL, "loop new failed");
+
+    ASSERT(iox_fd_add(loop, pfd[0], IOX_READ, except_cb, NULL) == IOX_OK,
+        "fd_add failed");
+
+    except_cb_called = 0;
+    except_cb_events = 0;
+    close(pfd[0]);          /* caller forgot iox_fd_remove */
+
+    ASSERT(iox_timer_add(loop, 50, timer_fire_cb, NULL) >= 0,
+        "timer_add failed");
+    (void)iox_loop_poll(loop);
+
+    ASSERT(except_cb_called == 1, "callback not called once");
+    ASSERT(except_cb_events & IOX_READ, "IOX_READ not set");
+    ASSERT(!(except_cb_events & IOX_EXCEPT),
+        "POLLNVAL reported as IOX_EXCEPT");
+
+    iox_loop_free(loop);
+    close(pfd[1]);
+    PASS();
+}
+
 /* ---- timer ids stay valid across churn ---- */
 
 static void
@@ -807,6 +892,8 @@ main(void)
     test_two_loops_signals();
     test_free_one_loop_keeps_other();
     test_closed_fd_dropped();
+    test_fd_except();
+    test_closed_fd_not_except();
     test_timer_ids_unique();
 
     printf("\n%d tests, %d failures\n", test_count, fail_count);

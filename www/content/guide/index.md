@@ -83,6 +83,13 @@ callback receives the flags that actually fired, which is not necessarily
 what you asked for: a hangup or an error arrives as `IOX_READ`, so the read
 you were going to do anyway returns 0 or fails and you find out there.
 
+An error condition also sets `IOX_EXCEPT`, which matters when reading is not
+how you want to find out. The case that motivated it is `MSG_ZEROCOPY` on
+Linux, where send completions queue on the socket error queue and have to be
+collected with `recvmsg(MSG_ERRQUEUE)` rather than an ordinary read. You
+cannot ask for it, since `poll` reports `POLLERR` whether or not it was
+requested, so a watcher for it alone passes `events` of 0.
+
 `iox_fd_remove` is safe to call from inside a dispatch callback, including on
 the descriptor currently being dispatched. Removal during dispatch is
 deferred and the table is compacted once dispatch finishes, so the iteration

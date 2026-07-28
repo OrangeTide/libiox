@@ -67,7 +67,8 @@ Then one include path and five sources. See [VENDORING.md](VENDORING.md).
 ### File descriptors
 
 - `iox_fd_add(loop, fd, events, cb, arg)` -- watch fd for
-  `IOX_READ` and/or `IOX_WRITE`.
+  `IOX_READ` and/or `IOX_WRITE`. The callback gets the flags that
+  fired, plus `IOX_EXCEPT` on an error condition.
 - `iox_fd_mod(loop, fd, events)` -- change watched events.
 - `iox_fd_remove(loop, fd)` -- safe to call during dispatch.
 

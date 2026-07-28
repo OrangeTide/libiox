@@ -3,6 +3,36 @@
 Versions are SemVer. The major version is the compatibility promise for the
 API. While the major version is 0, a minor bump may break the API.
 
+## Unreleased
+
+### Added
+
+- **`IOX_EXCEPT`, a third event flag, set when `poll` reports `POLLERR`.**
+  Until now `POLLIN`, `POLLHUP`, `POLLERR`, and `POLLNVAL` all reached the
+  callback as `IOX_READ`, on the reasoning that the caller's next read is
+  what turns any of them into a specific error. That holds right up until
+  reading is not how you want to find out. Linux reports `MSG_ZEROCOPY`
+  send completions on the socket error queue, collected with
+  `recvmsg(MSG_ERRQUEUE)`, so a zero-copy sender had to attempt that
+  speculatively on every wakeup to find out whether there was anything
+  there.
+
+  `IOX_EXCEPT` is set in addition to `IOX_READ`, never instead of it, so
+  code written before the flag behaves exactly as it did. It is delivery
+  only: `poll` cannot be asked for `POLLERR` and reports it regardless, so
+  a watcher that cares only about the error condition is `iox_fd_add` with
+  `events` of 0, which already dispatched correctly. `POLLNVAL` does not
+  set it, since a descriptor closed behind the loop is a caller bug the
+  loop already handles by dropping the entry.
+
+- `docs/udp-perf/poll-limits.md`, on what libiox would have to change to
+  support GSO, `MSG_ZEROCOPY`, and io_uring, and why only the second of
+  those was worth acting on. The short version is that io_uring is a
+  completion model and libiox is a readiness model, and the cost is not
+  performance but semantics: a submitted operation lives in the kernel, so
+  the synchronous, certain `iox_fd_remove` that the whole safety story
+  rests on cannot exist.
+
 ## 0.1.1
 
 A bug fix in `tools/vendor.sh`, two CI corrections, and a set of notes on

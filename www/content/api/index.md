@@ -48,8 +48,9 @@ It does not run in a loop driven by `iox_loop_poll` directly.
 ## iox_fd.h
 
 ```c
-#define IOX_READ  (1u << 0)
-#define IOX_WRITE (1u << 1)
+#define IOX_READ   (1u << 0)
+#define IOX_WRITE  (1u << 1)
+#define IOX_EXCEPT (1u << 2)
 
 typedef void (*iox_fd_cb)(struct iox_loop *loop, int fd,
                           unsigned events, void *arg);
@@ -73,6 +74,20 @@ The `events` a callback receives are what fired, not what was requested.
 `POLLHUP`, `POLLERR`, and `POLLNVAL` all arrive as `IOX_READ`, on the
 reasoning that the caller's read is what turns any of them into a specific
 error it can act on.
+
+`POLLERR` additionally sets `IOX_EXCEPT`, for callers that need to tell an
+error condition from readable data without reading first. The Linux case
+that needs it is `MSG_ZEROCOPY`, where send completions wait on the socket
+error queue and `recvmsg(MSG_ERRQUEUE)` is the only way to collect them.
+`IOX_READ` stays set alongside it, so code written before the flag existed
+behaves exactly as it did.
+
+`IOX_EXCEPT` is delivery only. `poll` cannot be asked for `POLLERR` and
+reports it regardless, so a watcher that cares only about the error
+condition is `iox_fd_add` with `events` of 0. Passing `IOX_EXCEPT` is
+accepted and documents intent, but changes nothing. `POLLNVAL` does not set
+it: a descriptor closed behind the loop is a caller bug the loop already
+handles by dropping the entry, not a condition to go read about.
 
 ## iox_timer.h
 

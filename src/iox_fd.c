@@ -12,6 +12,9 @@ poll_events_from_iox(unsigned iox_events)
         pe |= POLLIN;
     if (iox_events & IOX_WRITE)
         pe |= POLLOUT;
+    /* IOX_EXCEPT has no bit here on purpose. POLLERR cannot be requested;
+     * poll reports it regardless of what was asked for, so a watcher for
+     * it alone is iox_fd_add with events 0. */
     return pe;
 }
 
