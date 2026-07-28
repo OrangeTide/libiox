@@ -5,8 +5,37 @@ API. While the major version is 0, a minor bump may break the API.
 
 ## 0.1.1
 
-A bug fix in `tools/vendor.sh`. The library itself is unchanged, so a copy
-already on 0.1.0 does not need to be re-vendored for this.
+A bug fix in `tools/vendor.sh`, two CI corrections, and a set of notes on
+sending UDP fast. The library itself is unchanged, so a copy already on
+0.1.0 does not need to be re-vendored for this.
+
+### Added
+
+- **`docs/udp-perf/`, notes and a measurement program for high-rate UDP
+  sending on Linux.** `udpzc.c` sends the same datagram stream four ways so
+  they compare directly: `sendmsg`, `sendmsg` with `MSG_ZEROCOPY`,
+  `IORING_OP_SENDMSG`, and `IORING_OP_SENDMSG_ZC`, with UDP GSO optional on
+  each. The io_uring path calls `io_uring_setup` and `io_uring_enter`
+  directly and maps the rings itself, so there is no liburing dependency.
+  It is Linux only and is not wired into `module.mk`, so the portable build
+  is untouched.
+
+  Batching is what pays. UDP GSO is worth roughly 6x on its own and
+  io_uring another 5 to 7 percent on top; zero-copy is a second order
+  effect that only appears above about 10 KB per send, and both zero-copy
+  paths report when the kernel copied anyway so you can tell.
+
+  The notes also record where a `poll()` loop stops helping, which is the
+  part that concerns libiox. GSO needs nothing from the event loop.
+  `MSG_ZEROCOPY` fits, because `poll()` reports `POLLERR` whether or not it
+  was asked for. io_uring does not fit: registering the ring fd as a
+  watcher works, but pays a `poll()` wakeup per batch for a mechanism whose
+  point is avoiding syscalls. A program that needs io_uring wants io_uring
+  owning its event loop.
+
+- The same material as a page on the site, written for a reader who does
+  not use libiox, since most of it is about Linux rather than about this
+  library.
 
 ### Fixed
 
@@ -24,6 +53,29 @@ already on 0.1.0 does not need to be re-vendored for this.
   The cleanup now clears `module.mk` only when the run is going to write one.
   CI covers both directions: a host-owned file survives `--force`, and one
   the run does own is still replaced rather than left stale.
+
+- **The arm32 CI job installs the target libc explicitly.** It failed
+  compiling `src/iox_fd.c` on a missing `bits/libc-header-start.h`. The
+  cross compiler had no target headers, so gcc's own `stdint.h` fell
+  through `include_next` to the runner's x86 headers.
+  `libc6-dev-armhf-cross` reaches the compiler only as a Recommends, and
+  the job installs with `--no-install-recommends`. A preflight step now
+  compiles `stdint.h` and `poll.h` with the cross compiler and names the
+  missing package. A bare `main()` probe would not catch it, since a
+  toolchain with no target libc compiles one fine.
+
+  Worth knowing on its own: this passed locally because a non-multiarch
+  machine has `/usr/include/bits/libc-header-start.h`, so the fallback to
+  host headers succeeds silently and produces a binary compiled against the
+  wrong libc headers.
+
+### Changed
+
+- The Pages workflow moved to the Node 24 action releases.
+  `upload-pages-artifact@v5` and `deploy-pages@v5` clear the runner's
+  forced-Node-24 annotation that reached it transitively through
+  `upload-artifact`. `pages.yml` also picked up `checkout@v6` to match
+  `ci.yml`.
 
 ## 0.1.0
 
