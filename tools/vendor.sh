@@ -188,10 +188,15 @@ fi
 
 # A --force over a copy that had tests, by a run that does not want them,
 # would otherwise leave the test file behind, stale and still compiling.
+#
+# module.mk is only cleared when this run is going to write one. With
+# --no-module-mk the file in the destination is the host project's own build
+# wiring, which this script did not put there and must not delete.
 if [ "$FORCE" -eq 1 ] && [ -d "$DEST" ]; then
-    for f in $LIB_FILES module.mk; do
+    for f in $LIB_FILES; do
         rm -f "${DEST:?}/$f"
     done
+    [ "$WITH_MODULE_MK" -eq 1 ] && rm -f "${DEST:?}/module.mk"
     rm -rf "${DEST:?}/tests"
 fi
 
