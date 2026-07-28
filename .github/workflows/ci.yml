@@ -99,11 +99,38 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # libc6-dev-armhf-cross has to be named explicitly. It reaches the
+      # compiler only as a Recommends of libgcc-*-dev-armhf-cross, and this
+      # job installs with --no-install-recommends, so without it the target
+      # headers are absent. The cross compiler then silently falls back to
+      # the host's /usr/include and fails deep inside stdint.h on a missing
+      # bits/libc-header-start.h, which reads as a libiox bug and is not one.
+      #
+      # It also pulls libc6-armhf-cross, which is the runtime qemu loads
+      # through -L below, so the same package fixes compiling and running.
       - name: Install cross toolchain and qemu
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-              gcc-arm-linux-gnueabihf qemu-user
+              gcc-arm-linux-gnueabihf libc6-dev-armhf-cross qemu-user
+
+      # Probe with the headers the library actually includes. A toolchain
+      # missing its target libc compiles a bare main() perfectly well, so a
+      # trivial probe would pass and leave the real failure looking like a
+      # source problem.
+      - name: Check the cross toolchain is complete
+        run: |
+          set -eu
+          printf '#include <stdint.h>\n#include <poll.h>\nint main(void){return 0;}\n' \
+              > /tmp/probe.c
+          if ! arm-linux-gnueabihf-gcc -o /tmp/probe /tmp/probe.c 2>/tmp/probe.err; then
+              echo "::error::arm32 toolchain cannot compile against its target libc."
+              echo "::error::Check that libc6-dev-armhf-cross is installed."
+              cat /tmp/probe.err
+              exit 1
+          fi
+          arm-linux-gnueabihf-gcc -print-file-name=include | head -1
+          echo "target headers resolve, toolchain is complete"
 
       - name: Build for arm32
         run: |
