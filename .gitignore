@@ -1,0 +1,7 @@
+_build/
+_out/
+compile_commands.json
+.env
+_site/
+_site-drafts/
+public/

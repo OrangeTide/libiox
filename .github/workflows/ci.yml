@@ -1,0 +1,303 @@
+# Build and test libiox on every platform it claims to support.
+#
+# The docs site has its own workflow (pages.yml). This one is the library:
+# Linux x86-64 and arm64 natively, arm32 under qemu, Windows x86-64 natively
+# with both mingw and MSVC, and a check that the vendoring script produces a
+# copy that actually builds.
+#
+# The Windows jobs matter more than their size suggests. libiox's Windows
+# half is a real implementation -- WSAPoll, QueryPerformanceCounter, and a
+# UDP loopback socket standing in for the self-pipe -- and before these jobs
+# existed it had only ever been compiled, never run.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'tools/**'
+      - '**/module.mk'
+      - 'GNUmakefile'
+      - '.github/workflows/ci.yml'
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly, for the fuzz job only. Everything else runs on push.
+    - cron: '0 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The full matrix, which is where the sanitizers, valgrind, static analysis,
+  # allocation-failure sweep, and fuzz replay live. tools/test.sh skips what
+  # is not installed and reports it, so the package list decides the coverage.
+  linux:
+    name: linux x86-64 (full matrix)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              clang valgrind cppcheck shellcheck \
+              gcc-multilib gcc-mingw-w64-x86-64
+
+      - name: Full test matrix
+        run: tools/test.sh
+
+      - name: Check the version header
+        run: tools/version.sh --check
+
+  # Native arm64. Different word-size assumptions do not apply here, but
+  # alignment, atomics-free struct layout, and the monotonic clock all differ
+  # enough from x86 to be worth a native run rather than a cross-compile.
+  linux-arm64:
+    name: linux arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang valgrind
+
+      - name: Build (strict)
+        run: |
+          make CFLAGS="-std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra \
+              -Wpedantic -Wshadow -Werror -O2"
+
+      - name: Test
+        run: make run-tests
+
+      - name: Test under valgrind
+        run: make run-tests-valgrind
+
+      - name: Sanitizers
+        run: tools/test.sh sanitizers
+
+  # 32-bit ARM, cross-compiled and run under qemu-user. This is the only
+  # target where time_t, long, and pointers are 32-bit, which is exactly
+  # where a 64-bit nanosecond deadline calculation would go wrong if it
+  # were ever written carelessly.
+  linux-arm32:
+    name: linux arm32 (qemu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install cross toolchain and qemu
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              gcc-arm-linux-gnueabihf qemu-user
+
+      - name: Build for arm32
+        run: |
+          set -eu
+          mkdir -p _build/arm32
+          for f in src/iox_*.c; do
+              arm-linux-gnueabihf-gcc -c -o "_build/arm32/$(basename "$f" .c).o" \
+                  -Isrc -std=c99 -D_POSIX_C_SOURCE=200809L \
+                  -Wall -Wextra -Wpedantic -Werror -O2 "$f"
+          done
+          arm-linux-gnueabihf-gcc -o _build/arm32/iox_test \
+              -Isrc -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror -O2 \
+              tests/iox_test.c _build/arm32/*.o
+          arm-linux-gnueabihf-gcc -o _build/arm32/iox_portable_test \
+              -Isrc -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror -O2 \
+              tests/iox_portable_test.c _build/arm32/*.o
+
+      - name: Run under qemu
+        run: |
+          set -eu
+          qemu-arm -L /usr/arm-linux-gnueabihf _build/arm32/iox_test
+          qemu-arm -L /usr/arm-linux-gnueabihf _build/arm32/iox_portable_test
+
+  # macOS: the other POSIX the library claims. BSD poll and BSD signal
+  # semantics differ from glibc's in small ways that only a real run finds.
+  macos:
+    name: macos arm64
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build and test
+        run: |
+          set -eu
+          cc -Isrc -std=c99 -Wall -Wextra -Wpedantic -Werror -O2 \
+              -o iox_test tests/iox_test.c src/iox_*.c
+          cc -Isrc -std=c99 -Wall -Wextra -Wpedantic -Werror -O2 \
+              -o iox_portable_test tests/iox_portable_test.c src/iox_*.c
+          ./iox_test
+          ./iox_portable_test
+      - name: Sanitizers
+        run: |
+          set -eu
+          cc -Isrc -std=c99 -Wall -Wextra -O1 -g \
+              -fsanitize=address,undefined -fno-sanitize-recover=all \
+              -o iox_test_asan tests/iox_test.c src/iox_*.c
+          ./iox_test_asan
+
+  # Windows, natively, with both toolchains. mingw is what the library is
+  # developed against; MSVC is a genuinely different compiler and finds
+  # different things. Only the portable test runs here: iox_test.c is POSIX
+  # (pipes, sigaction, SIGUSR1) and cannot build on Windows at all.
+  windows:
+    name: windows x86-64 (${{ matrix.toolchain }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [mingw, msvc]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build and test (mingw)
+        if: matrix.toolchain == 'mingw'
+        shell: bash
+        run: |
+          set -eu
+          gcc -Isrc -std=c99 -Wall -Wextra -Wpedantic -Werror -O2 \
+              -o iox_portable_test.exe \
+              tests/iox_portable_test.c src/iox_loop.c src/iox_fd.c \
+              src/iox_signal.c src/iox_timer.c src/iox_plat.c -lws2_32
+          ./iox_portable_test.exe
+
+      # vswhere is the supported way to find a Visual Studio install, and it
+      # lives at a fixed path that does not move between editions. Hardcoding
+      # the vcvars path instead means pinning the edition (Enterprise today,
+      # but the hosted image has shipped others) and the year, and the failure
+      # when either changes is an unhelpful "file not found".
+      #
+      # /W4 /WX is MSVC's equivalent of -Wall -Wextra -Werror. C11 mode,
+      # because MSVC's C99 support predates its conformance work and /std:c11
+      # is the oldest mode it treats seriously.
+      - name: Build and test (MSVC)
+        if: matrix.toolchain == 'msvc'
+        shell: cmd
+        run: |
+          set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+          if not exist "%VSWHERE%" set "VSWHERE=%ProgramFiles%\Microsoft Visual Studio\Installer\vswhere.exe"
+          if not exist "%VSWHERE%" (
+            echo could not find vswhere.exe
+            exit /b 1
+          )
+          for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+          if not defined VSPATH (
+            echo no Visual Studio install with the C++ toolset
+            exit /b 1
+          )
+          echo using %VSPATH%
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cl /nologo /W4 /WX /std:c11 /Isrc /Fe:iox_portable_test.exe ^
+             tests\iox_portable_test.c ^
+             src\iox_loop.c src\iox_fd.c src\iox_signal.c ^
+             src\iox_timer.c src\iox_plat.c ^
+             ws2_32.lib
+          if errorlevel 1 exit /b 1
+          iox_portable_test.exe
+
+  # Vendoring is the only supported way to use libiox, so a release that
+  # vendors into something that does not build is a broken release. This
+  # vendors the commit under test, not the last tag, then builds the copy
+  # the way a consumer would: one -I and five sources, no modular-make.
+  vendor:
+    name: vendor self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Vendor this commit into a temp directory
+        run: |
+          set -eu
+          DEST=$(mktemp -d)/libiox
+          echo "DEST=$DEST" >> "$GITHUB_ENV"
+          tools/vendor.sh --from . --dest "$DEST" --with-tests
+          test -f "$DEST/VENDORED.md"
+          test -f "$DEST/LICENSE"
+          test -f "$DEST/iox_version.h"
+
+      # The claim in VENDORING.md is one include path and five sources. If
+      # that stops being true, this is where it shows up.
+      - name: Build the vendored copy as a consumer would
+        run: |
+          set -eu
+          cc -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic \
+              -Werror -O2 -I"$DEST" -o vendored_test \
+              "$DEST/tests/iox_portable_test.c" \
+              "$DEST/iox_loop.c" "$DEST/iox_fd.c" "$DEST/iox_signal.c" \
+              "$DEST/iox_timer.c" "$DEST/iox_plat.c"
+          ./vendored_test
+
+      # The other claim: that src/ is the library alone, so a project can
+      # glob it without picking up a main().
+      - name: Build the vendored copy from a bare glob
+        run: |
+          set -eu
+          cc -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror \
+              -c -I"$DEST" $DEST/*.c
+          test "$(ls ./*.o | wc -l)" -eq 5
+          ! nm ./*.o | grep -q ' T main'
+          echo "vendored src is the library and nothing else"
+
+      - name: Vendored copy cross-compiles for Windows
+        run: |
+          set -eu
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          x86_64-w64-mingw32-gcc -std=c99 -Wall -Wextra -Werror -O2 \
+              -I"$DEST" -o vendored_test.exe \
+              "$DEST/tests/iox_portable_test.c" \
+              "$DEST/iox_loop.c" "$DEST/iox_fd.c" "$DEST/iox_signal.c" \
+              "$DEST/iox_timer.c" "$DEST/iox_plat.c" -lws2_32
+
+      # --force has to clear what the previous run left, or a copy that once
+      # had tests keeps compiling them after a run that did not want them.
+      - name: Re-vendor without tests over the top
+        run: |
+          set -eu
+          tools/vendor.sh --from . --dest "$DEST" --force --no-module-mk
+          test ! -d "$DEST/tests"
+          test ! -f "$DEST/module.mk"
+          test -f "$DEST/iox_loop.c"
+          echo "--force cleaned up the previous layout"
+
+  # Fuzzing runs weekly rather than per-push. A 15-minute run reaches states
+  # a 60-second one does not, and blocking every push on it would buy little.
+  # A crashing input is uploaded; commit it into tests/fuzz-corpus/ and the
+  # replay in `linux` covers it from then on.
+  fuzz:
+    name: fuzz (weekly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install clang
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang
+      - name: Fuzz
+        run: tools/fuzz.sh 900
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: fuzz-findings
+          path: tests/fuzz-corpus/
+          if-no-files-found: ignore

@@ -1,0 +1,88 @@
+# Build the library, run its tests, then publish the docs site to Pages.
+#
+# The site is documentation for the library, so a broken library must not
+# publish a site claiming otherwise. `test` gates `build`, which gates
+# `deploy`. Pull requests run everything except the deploy.
+#
+# Pages must be enabled in the repository settings with Source =
+# "GitHub Actions", not "Deploy from a branch". Without it the deploy step
+# fails with a 404 that says nothing useful.
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Queue deploys instead of cancelling them; a cancelled deploy can leave the
+# Pages environment pointing at a half-uploaded artifact.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # A quick gate, not the full matrix: ci.yml owns that, and running a
+  # 30-minute sanitizer sweep a second time to decide whether to publish
+  # documentation would be absurd. This only has to catch "the library is
+  # broken, do not publish a site claiming otherwise".
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (strict)
+        run: |
+          make CFLAGS="-std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra \
+              -Wpedantic -Wshadow -Werror -O2"
+
+      - name: Test
+        run: make run-tests
+
+      # A vendored copy is identified by its header, so a tag that disagrees
+      # with it would ship a copy that lies about its own version.
+      - name: Check the version header
+        run: tools/version.sh --check
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install site tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends lowdown
+
+      - name: Build site
+        run: make -C www site
+
+      - name: Check output
+        run: make -C www check
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: www/_site
+
+  # Deploy only from the default branch: pull requests build and are checked,
+  # but must not replace the live site.
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
