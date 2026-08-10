@@ -88,7 +88,10 @@ how you want to find out. The case that motivated it is `MSG_ZEROCOPY` on
 Linux, where send completions queue on the socket error queue and have to be
 collected with `recvmsg(MSG_ERRQUEUE)` rather than an ordinary read. You
 cannot ask for it, since `poll` reports `POLLERR` whether or not it was
-requested, so a watcher for it alone passes `events` of 0.
+requested. Pass `IOX_READ` anyway, because macOS registers no kqueue
+filter for an `events` of 0 and never polls such a descriptor. macOS also
+reports these conditions as `POLLHUP` rather than `POLLERR`, so the flag
+arrives on Linux and Windows only.
 
 `iox_fd_remove` is safe to call from inside a dispatch callback, including on
 the descriptor currently being dispatched. Removal during dispatch is

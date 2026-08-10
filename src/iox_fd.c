@@ -13,8 +13,9 @@ poll_events_from_iox(unsigned iox_events)
     if (iox_events & IOX_WRITE)
         pe |= POLLOUT;
     /* IOX_EXCEPT has no bit here on purpose. POLLERR cannot be requested;
-     * poll reports it regardless of what was asked for, so a watcher for
-     * it alone is iox_fd_add with events 0. */
+     * poll reports it regardless of what was asked for. A watcher still
+     * needs to ask for something, since macOS polls nothing at all for an
+     * events of 0. */
     return pe;
 }
 

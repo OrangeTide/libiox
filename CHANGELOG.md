@@ -20,10 +20,17 @@ API. While the major version is 0, a minor bump may break the API.
   `IOX_EXCEPT` is set in addition to `IOX_READ`, never instead of it, so
   code written before the flag behaves exactly as it did. It is delivery
   only: `poll` cannot be asked for `POLLERR` and reports it regardless, so
-  a watcher that cares only about the error condition is `iox_fd_add` with
-  `events` of 0, which already dispatched correctly. `POLLNVAL` does not
-  set it, since a descriptor closed behind the loop is a caller bug the
-  loop already handles by dropping the entry.
+  passing `IOX_EXCEPT` documents intent and nothing more. `POLLNVAL` does
+  not set it, since a descriptor closed behind the loop is a caller bug
+  the loop already handles by dropping the entry.
+
+  Linux and Windows deliver the flag; macOS does not. Its `poll` is a
+  kqueue wrapper that maps `EV_EOF` to `POLLHUP` and sets `POLLERR` only
+  when registering the event failed, so a pending error arrives as
+  `POLLHUP` and reaches the callback as plain `IOX_READ`. The same wrapper
+  registers no filter at all for a watcher with `events` of 0, which never
+  fires on macOS, so ask for `IOX_READ` even when the error condition is
+  all you want.
 
 - `docs/udp-perf/poll-limits.md`, on what libiox would have to change to
   support GSO, `MSG_ZEROCOPY`, and io_uring, and why only the second of

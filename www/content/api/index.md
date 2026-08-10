@@ -83,11 +83,23 @@ error queue and `recvmsg(MSG_ERRQUEUE)` is the only way to collect them.
 behaves exactly as it did.
 
 `IOX_EXCEPT` is delivery only. `poll` cannot be asked for `POLLERR` and
-reports it regardless, so a watcher that cares only about the error
-condition is `iox_fd_add` with `events` of 0. Passing `IOX_EXCEPT` is
-accepted and documents intent, but changes nothing. `POLLNVAL` does not set
-it: a descriptor closed behind the loop is a caller bug the loop already
-handles by dropping the entry, not a condition to go read about.
+reports it regardless. Passing `IOX_EXCEPT` is accepted and documents
+intent, but changes nothing. `POLLNVAL` does not set it: a descriptor
+closed behind the loop is a caller bug the loop already handles by
+dropping the entry, not a condition to go read about.
+
+A watcher that cares only about the error condition should still ask for
+`IOX_READ`. macOS implements `poll` on top of kqueue and registers no
+filter for an `events` of 0, so a watcher added that way never fires there
+at all.
+
+The flag itself is Linux and Windows. `WSAPoll` reports `POLLERR`, though
+with no error queue on Windows it only ever means a pending socket error.
+macOS maps kqueue's `EV_EOF` to `POLLHUP` and sets `POLLERR` only when
+registering the event failed, so a pending error arrives as `POLLHUP` and
+reaches the callback as plain `IOX_READ`. Code that wants the distinction
+portably has to fall back to reading, or to `getsockopt(SO_ERROR)`, on
+platforms that do not deliver it.
 
 ## iox_timer.h
 

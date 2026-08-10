@@ -11,17 +11,21 @@
  * which is how Linux reports MSG_ZEROCOPY send completions.
  *
  * Delivery only. poll cannot be asked for POLLERR and reports it whether
- * or not it was requested, so a watcher added with events 0 still gets
- * called. Passing IOX_EXCEPT to iox_fd_add or iox_fd_mod is accepted and
- * documents the intent, but changes nothing.
+ * or not it was requested. Passing IOX_EXCEPT to iox_fd_add or iox_fd_mod
+ * is accepted and documents the intent, but changes nothing. Register
+ * IOX_READ anyway: macOS implements poll on top of kqueue and registers
+ * no filter for a watcher with events 0, so such a watcher never fires
+ * there at all.
  *
  * IOX_READ is set alongside it, so a caller written before this flag
  * existed still sees POLLERR as readable and still fails visibly on the
  * next read. Test for IOX_EXCEPT only if the difference matters to you.
  *
- * WSAPoll reports POLLERR as well, so the flag is delivered on Windows.
- * There is no error queue there, so it only ever means a pending socket
- * error. */
+ * Linux and Windows deliver it. WSAPoll reports POLLERR, though with no
+ * error queue there it only ever means a pending socket error. macOS
+ * does not: its poll maps kqueue's EV_EOF to POLLHUP and sets POLLERR
+ * only when registering the event failed, so a pending error arrives as
+ * POLLHUP and reaches the callback as plain IOX_READ. */
 #define IOX_EXCEPT (1u << 2)
 
 struct iox_loop;

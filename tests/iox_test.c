@@ -780,9 +780,11 @@ test_fd_except(void)
     loop = iox_loop_new();
     ASSERT(loop != NULL, "loop new failed");
 
-    /* events 0: POLLERR cannot be requested, so this is what a watcher
-     * that only cares about the error condition looks like. */
-    ASSERT(iox_fd_add(loop, pfd[1], 0, except_cb, NULL) == IOX_OK,
+    /* IOX_READ, not 0. POLLERR cannot be requested and Linux reports it
+     * either way, but Darwin's poll is a kqueue wrapper that registers no
+     * filter at all for a watcher with events 0, so such a watcher never
+     * fires there. */
+    ASSERT(iox_fd_add(loop, pfd[1], IOX_READ, except_cb, NULL) == IOX_OK,
         "fd_add failed");
 
     except_cb_called = 0;
@@ -794,9 +796,14 @@ test_fd_except(void)
     (void)iox_loop_poll(loop);
 
     ASSERT(except_cb_called == 1, "callback not called once");
-    ASSERT(except_cb_events & IOX_EXCEPT, "IOX_EXCEPT not set");
     ASSERT(except_cb_events & IOX_READ,
         "IOX_READ dropped -- pre-IOX_EXCEPT callers would break");
+#ifdef __linux__
+    /* Only Linux puts POLLERR on the write end of a pipe whose read end
+     * is closed. Darwin maps the same condition to POLLHUP, which stays
+     * folded into IOX_READ above. */
+    ASSERT(except_cb_events & IOX_EXCEPT, "IOX_EXCEPT not set");
+#endif
 
     iox_loop_free(loop);
     close(pfd[1]);
