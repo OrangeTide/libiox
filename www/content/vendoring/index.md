@@ -17,9 +17,9 @@ missing mechanism, added after the fact.
 ## Taking a copy
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/OrangeTide/libiox/v0.1.1/tools/vendor.sh
+curl -fsSLO https://raw.githubusercontent.com/OrangeTide/libiox/v0.1.2/tools/vendor.sh
 less vendor.sh
-sh vendor.sh --version v0.1.1 --dest third_party/libiox
+sh vendor.sh --version v0.1.2 --dest third_party/libiox
 ```
 
 The script fetches the source snapshot GitHub serves for the tag, copies the
@@ -38,8 +38,8 @@ that can say what it is:
 ```c
 #include "iox_version.h"
 
-#if IOX_VERSION < 101          /* 0.1.1 */
-#  error "libiox 0.1.1 or newer is required"
+#if IOX_VERSION < 102          /* 0.1.2 */
+#  error "libiox 0.1.2 or newer is required"
 #endif
 ```
 

@@ -3,7 +3,14 @@
 Versions are SemVer. The major version is the compatibility promise for the
 API. While the major version is 0, a minor bump may break the API.
 
-## Unreleased
+## 0.1.2
+
+The first release to change the API since the consolidation. `IOX_EXCEPT`
+lets a caller tell a pending socket error, including a `MSG_ZEROCOPY`
+completion on Linux, apart from readable data. A macOS fix means a
+poll-driven loop now wakes for a ready pseudo-terminal master rather than
+stalling until unrelated traffic arrives. A copy on 0.1.0 or 0.1.1 should
+re-vendor for both.
 
 ### Added
 

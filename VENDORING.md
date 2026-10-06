@@ -34,7 +34,7 @@ Piping anything from the network into a shell means trusting the server and
 the connection; reading it first is the better habit:
 
 ```sh
-TAG=v0.1.1
+TAG=v0.1.2
 curl -fsSLO "https://raw.githubusercontent.com/OrangeTide/libiox/$TAG/tools/vendor.sh"
 less vendor.sh && sh vendor.sh --version "$TAG"
 ```
@@ -104,8 +104,8 @@ that can say what it is:
 ```c
 #include "iox_version.h"
 
-#if IOX_VERSION < 101          /* 0.1.1 */
-#  error "libiox 0.1.1 or newer is required"
+#if IOX_VERSION < 102          /* 0.1.2 */
+#  error "libiox 0.1.2 or newer is required"
 #endif
 ```
 
