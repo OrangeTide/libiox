@@ -40,6 +40,19 @@ API. While the major version is 0, a minor bump may break the API.
   the synchronous, certain `iox_fd_remove` that the whole safety story
   rests on cannot exist.
 
+### Fixed
+
+- **macOS now reports readiness on pseudo-terminal masters.** macOS
+  `poll` does not wake for a ready pty master, so a loop whose only ready
+  descriptor was a pty master could block until unrelated traffic on
+  another descriptor returned from `poll`. Under `__APPLE__` the platform
+  shim now translates the `pollfd` set into a `select` call, which reports
+  ptys correctly. Only `POLLIN` and `POLLOUT` are honored on this path; a
+  hangup or error reads ready and the following `read`/`write` fails
+  visibly, and a descriptor closed behind the loop maps to `POLLNVAL` so
+  the loop drops it, matching the `poll` path. The one cost is `select`'s
+  `FD_SETSIZE` ceiling, which this path inherits on macOS only.
+
 ## 0.1.1
 
 A bug fix in `tools/vendor.sh`, two CI corrections, and a set of notes on
