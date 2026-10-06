@@ -331,6 +331,42 @@ jobs:
           grep -q 'libiox' "$HOSTED/module.mk"
           echo "module.mk replaced when this run owns it"
 
+  # The single required status check. Set branch protection to require
+  # "ci-ok" and nothing else: it passes only when every per-push job above
+  # succeeded, so a new job added to the matrix is covered the moment it is
+  # listed here. The weekly fuzz job is deliberately not a prerequisite; it
+  # is skipped on push and pull_request, and a skipped prerequisite would
+  # otherwise drag this gate to skipped and let a PR merge ungated.
+  ci-ok:
+    name: ci-ok
+    needs: [linux, linux-arm64, linux-arm32, macos, windows, vendor]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to have succeeded
+        run: |
+          set -eu
+          printf 'linux        = %s\n' "${{ needs.linux.result }}"
+          printf 'linux-arm64  = %s\n' "${{ needs.linux-arm64.result }}"
+          printf 'linux-arm32  = %s\n' "${{ needs.linux-arm32.result }}"
+          printf 'macos        = %s\n' "${{ needs.macos.result }}"
+          printf 'windows      = %s\n' "${{ needs.windows.result }}"
+          printf 'vendor       = %s\n' "${{ needs.vendor.result }}"
+          for r in \
+              "${{ needs.linux.result }}" \
+              "${{ needs.linux-arm64.result }}" \
+              "${{ needs.linux-arm32.result }}" \
+              "${{ needs.macos.result }}" \
+              "${{ needs.windows.result }}" \
+              "${{ needs.vendor.result }}"; do
+              if [ "$r" != "success" ]; then
+                  echo "::error::a required job did not succeed (saw '$r')"
+                  exit 1
+              fi
+          done
+          echo "all required jobs passed"
+
   # Fuzzing runs weekly rather than per-push. A 15-minute run reaches states
   # a 60-second one does not, and blocking every push on it would buy little.
   # A crashing input is uploaded; commit it into tests/fuzz-corpus/ and the
