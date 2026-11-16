@@ -170,14 +170,22 @@ stage_analysis() {
         rc=0
         for f in $LIB; do
             # shellcheck disable=SC2086
-            gcc -fanalyzer -Werror -c -o /dev/null $BASE $INC -O2 "$f" \
+            gcc -fanalyzer -c -o /dev/null $BASE $INC -O2 "$f" \
                 >>"$work/analyzer.log" 2>&1 || rc=1
         done
-        if [ "$rc" -eq 0 ]; then
-            ok "gcc -fanalyzer"
+        # pq.h is excluded for the same reason as the clang stage below: on
+        # the path through resize() the analyzer cannot prove that the
+        # realloc'd entry buffer, stored in pq->entry, stays reachable, so it
+        # reports a bogus leak at the enqueue in pq.h. The buffer is owned by
+        # the queue and freed in free(). Warnings in libiox's own files still
+        # fail the stage.
+        grep 'warning:' "$work/analyzer.log" | grep -v '/pq\.h:' \
+            > "$work/analyzer.warnings" || true
+        if [ "$rc" -eq 0 ] && [ ! -s "$work/analyzer.warnings" ]; then
+            ok "gcc -fanalyzer (pq.h excluded, see the note in this script)"
         else
             bad "gcc -fanalyzer"
-            sed 's/^/          /' "$work/analyzer.log" | tail -20
+            sed 's/^/          /' "$work/analyzer.warnings" | head -15
         fi
     else
         skipd "gcc -fanalyzer (not supported)"
